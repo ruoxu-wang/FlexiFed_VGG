@@ -86,7 +86,7 @@ if __name__ == '__main__':
         print("Using cpu device")
 
     # init training conf
-    training_round = 2
+    training_round = 10
     num_epochs = 10
     batch_size = 64
     learning_rate = 0.01
@@ -123,14 +123,14 @@ if __name__ == '__main__':
     client_test_datasets = []
     test_split_size = data_len // num_client
     for i in range(num_client):
-        client_test_idx = data_idx[i * test_split_size: (i + 1) * test_split_size]
+        client_test_idx = test_data_idx[i * test_split_size: (i + 1) * test_split_size]
         client_test_datasets.append(Subset(test_dataset, client_test_idx))
 
     client_test_data_splits = []
     for i in range(num_client):
         client_test_data = client_test_datasets[i]
         split_sizes = [len(client_test_data) // training_round] * training_round
-        client_test_split = torch.utils.data.random_split(client_test_data, split_sizes)
+        client_test_split = random_split(client_test_data, split_sizes)
         client_test_data_splits.append(client_test_split)
 
     # init global model
@@ -166,24 +166,31 @@ if __name__ == '__main__':
                 train_loader = DataLoader(client_data_splits[client_id][round], batch_size=batch_size, shuffle=True)
                 client_state_dict = train_local_model(train_loader, client_model, num_epochs, learning_rate)
                 global_model[client_id].load_state_dict(client_state_dict)
+                del client_model
             torch.cuda.empty_cache()
 
         # server model aggregation and averaging
         # vgg11-19
-        state_dict = global_model[0].state_dict()
-        layer_weight_sum = state_dict['features.0.weight'].clone().to(device)
-        layer_bias_sum = state_dict['features.0.bias'].clone().to(device)
+        layer_weight_sum = None
+        layer_bias_sum = None
 
-        for client_id in range(1, num_client):
+        for client_id in range(0, num_client):
             state_dict = global_model[client_id].state_dict()
-            weight = state_dict['features.0.weight']
-            bias = state_dict['features.0.bias']
 
-            layer_weight_sum += weight
-            layer_bias_sum += bias
+            weight = state_dict['features.0.weight'].to(device)
+            bias = state_dict['features.0.bias'].to(device)
+
+            if layer_weight_sum is None:
+                layer_weight_sum = weight.clone()
+                layer_bias_sum = bias.clone()
+            else:
+                layer_weight_sum += weight
+                layer_bias_sum += bias
 
         avg_weight = layer_weight_sum / num_client
         avg_bias = layer_bias_sum / num_client
+        del layer_weight_sum, layer_bias_sum
+        torch.cuda.empty_cache()
 
         for client_id in range(num_client):
             state_dict = global_model[client_id].state_dict()
@@ -203,18 +210,20 @@ if __name__ == '__main__':
                 weight_name = f'features.{layer_idx}.weight'
                 bias_name = f'features.{layer_idx}.bias'
 
-                weight = state_dict[weight_name]
-                bias = state_dict[bias_name]
+                weight = state_dict[weight_name].to(device)
+                bias = state_dict[bias_name].to(device)
 
                 if layer_weight_sum is None:
-                    layer_weight_sum = weight.clone().to(device)
-                    layer_bias_sum = bias.clone().to(device)
+                    layer_weight_sum = weight.clone()
+                    layer_bias_sum = bias.clone()
                 else:
                     layer_weight_sum += weight
                     layer_bias_sum += bias
 
             avg_weight = layer_weight_sum / num_clients
             avg_bias = layer_bias_sum / num_clients
+            del layer_weight_sum, layer_bias_sum
+            torch.cuda.empty_cache()
 
             for client_id in range(10, 40):
                 state_dict = global_model[client_id].state_dict()
@@ -230,18 +239,20 @@ if __name__ == '__main__':
         for client_id in range(20, 40):
             state_dict = global_model[client_id].state_dict()
 
-            weight = state_dict['features.14.weight']
-            bias = state_dict['features.14.bias']
+            weight = state_dict['features.14.weight'].to(device)
+            bias = state_dict['features.14.bias'].to(device)
 
             if layer_weight_sum is None:
-                layer_weight_sum = weight.clone().to(device)
-                layer_bias_sum = bias.clone().to(device)
+                layer_weight_sum = weight.clone()
+                layer_bias_sum = bias.clone()
             else:
                 layer_weight_sum += weight
                 layer_bias_sum += bias
 
         avg_weight = layer_weight_sum / num_clients
         avg_bias = layer_bias_sum / num_clients
+        del layer_weight_sum, layer_bias_sum
+        torch.cuda.empty_cache()
 
         for client_id in range(20, 40):
             state_dict = global_model[client_id].state_dict()
@@ -253,7 +264,7 @@ if __name__ == '__main__':
         print(f"Evaluating client models after round {round + 1}")
         for client_id in range(num_client):
             test_loader = DataLoader(client_test_data_splits[client_id][round], batch_size=batch_size, shuffle=False)
-            avg_loss, accuracy = evaluate_model(test_loader, client_model[client_id])
+            avg_loss, accuracy = evaluate_model(test_loader, global_model[client_id])
             round_loss.append(avg_loss)
             round_accuracy.append(accuracy)
             print(f"Client {client_id + 1} - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
