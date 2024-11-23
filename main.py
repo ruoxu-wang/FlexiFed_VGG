@@ -55,7 +55,7 @@ def train_local_model(train_loader, client_model, num_epochs, learning_rate):
 def evaluate_model(test_loader, client_model):
     client_model.eval()
     client_model.to(device)
-    total_loss = 0
+    # total_loss = 0
     correct = 0
     total = 0
     criterion = nn.CrossEntropyLoss()
@@ -64,15 +64,17 @@ def evaluate_model(test_loader, client_model):
         for images, labels in test_loader:
             images, labels = images.to(device), labels.to(device)
             outputs = client_model(images)
-            loss = criterion(outputs, labels)
-            total_loss += loss.item()
+            # loss = criterion(outputs, labels)
+            # total_loss += loss.item()
             _, predicted = outputs.max(1)
             correct += predicted.eq(labels).sum().item()
             total += labels.size(0)
 
-    avg_loss = total_loss / len(test_loader)
+    # avg_loss = total_loss / len(test_loader)
     accuracy = 100.0 * correct / total
-    return avg_loss, accuracy
+    # return avg_loss, accuracy
+    return accuracy
+
 
 if __name__ == '__main__':
     if torch.backends.mps.is_available():
@@ -91,7 +93,8 @@ if __name__ == '__main__':
     batch_size = 64
     learning_rate = 0.01
     num_client = 40 # init dataset for 40 client, every 10 client share one model
-    round_results = {"loss": [], "accuracy": []}
+    # round_results = {"loss": [], "accuracy": []}
+    round_results = {"accuracy": []}
 
     # init CIFAR10 dataset
     train_dataset = data_loader(data_dir='./data', batch_size=64)   # DataLoader init
@@ -143,7 +146,7 @@ if __name__ == '__main__':
     # federated learning
     for round in range(training_round):
         print(f"Training Round {round + 1}")
-        round_loss = []
+        # round_loss = []
         round_accuracy = []
 
         # local training
@@ -264,17 +267,20 @@ if __name__ == '__main__':
         print(f"Evaluating client models after round {round + 1}")
         for client_id in range(num_client):
             test_loader = DataLoader(client_test_data_splits[client_id][round], batch_size=batch_size, shuffle=False)
-            avg_loss, accuracy = evaluate_model(test_loader, global_model[client_id])
-            round_loss.append(avg_loss)
+            # avg_loss, accuracy = evaluate_model(test_loader, global_model[client_id])
+            accuracy = evaluate_model(test_loader, global_model[client_id])
+            # round_loss.append(avg_loss)
             round_accuracy.append(accuracy)
-            print(f"Client {client_id + 1} - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
+            # print(f"Client {client_id + 1} - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
+            print(f"Client {client_id + 1} - Accuracy: {accuracy:.2f}%")
 
-        avg_round_loss = sum(round_loss) / len(round_loss)
+        # avg_round_loss = sum(round_loss) / len(round_loss)
         avg_round_accuracy = sum(round_accuracy) / len(round_accuracy)
-        round_results["loss"].append(avg_round_loss)
+        # round_results["loss"].append(avg_round_loss)
         round_results["accuracy"].append(avg_round_accuracy)
 
-        print(f"Round {round + 1} - Average Loss: {avg_round_loss:.4f}, Average Accuracy: {avg_round_accuracy:.2f}%")
+        # print(f"Round {round + 1} - Average Loss: {avg_round_loss:.4f}, Average Accuracy: {avg_round_accuracy:.2f}%")
+        print(f"Round {round + 1} - Average Accuracy: {avg_round_accuracy:.2f}%")
         print("Round complete.\n")
 
     with open("federated_results.json", "w") as f:
