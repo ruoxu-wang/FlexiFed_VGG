@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # use Apple Silicon as https://developer.apple.com/metal/pytorch/
 # --------------------
 import torch
@@ -9,17 +10,7 @@ from torch.utils.data.sampler import SubsetRandomSampler
 import numpy as np
 from vgg import *
 import copy
-
-
-if torch.backends.mps.is_available():
-    device = torch.device("mps")
-    print("Using mps device")
-elif torch.cuda.is_available():
-    device = torch.device("cuda")
-    print("Using cuda device")
-else:
-    device = torch.device("cpu")
-    print("Using cpu device")
+import json
 
 
 # loading DataSet
@@ -35,7 +26,7 @@ def data_loader(data_dir, batch_size, random_seed=42, valid_size=0.1, test=False
     train_dataset = datasets.CIFAR10(root=data_dir, train=True, download=True, transform=transform)
     return train_dataset
 
-
+# training
 def train_local_model(train_loader, client_model, num_epochs, learning_rate):
     client_model.to(device)
     # loss and optimizer
@@ -60,7 +51,7 @@ def train_local_model(train_loader, client_model, num_epochs, learning_rate):
             optimizer.step()
     return client_model.state_dict()
 
-
+# test
 def evaluate_model(test_loader, client_model):
     client_model.eval()
     client_model.to(device)
@@ -84,12 +75,23 @@ def evaluate_model(test_loader, client_model):
     return avg_loss, accuracy
 
 if __name__ == '__main__':
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+        print("Using mps device")
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")
+        print("Using cuda device")
+    else:
+        device = torch.device("cpu")
+        print("Using cpu device")
+
     # init training conf
     training_round = 2
     num_epochs = 10
     batch_size = 64
     learning_rate = 0.01
     num_client = 40 # init dataset for 40 client, every 10 client share one model
+    round_results = {"loss": [], "accuracy": []}
 
     # init CIFAR10 dataset
     train_dataset = data_loader(data_dir='./data', batch_size=64)   # DataLoader init
@@ -136,20 +138,35 @@ if __name__ == '__main__':
     model_mapping = [(range(0, 10), vgg11), (range(10, 20), vgg13), (range(20, 30), vgg16), (range(30, 40), vgg19)]
     for model_range, model_fn in model_mapping:
         for current_idx in model_range:
-            global_model[current_idx] = model_fn().to(device)
+            global_model[current_idx] = model_fn()
 
     # federated learning
     for round in range(training_round):
         print(f"Training Round {round + 1}")
+        round_loss = []
+        round_accuracy = []
+
         # local training
-        for client_id in range(num_client):
-            print(f"Client {client_id + 1} Local Training...")
-            # model distribution
-            client_model = copy.deepcopy(global_model[client_id])
-            # local training
-            train_loader = DataLoader(client_data_splits[client_id][round], batch_size=batch_size, shuffle=True)
-            client_state_dict = train_local_model(train_loader, client_model, num_epochs, learning_rate)
-            global_model[client_id].load_state_dict(client_state_dict)
+        # for client_id in range(num_client):
+        #     print(f"Client {client_id + 1} Local Training...")
+        #     # model distribution
+        #     client_model = copy.deepcopy(global_model[client_id])
+        #     # local training
+        #     train_loader = DataLoader(client_data_splits[client_id][round], batch_size=batch_size, shuffle=True)
+        #     client_state_dict = train_local_model(train_loader, client_model, num_epochs, learning_rate)
+        #     global_model[client_id].load_state_dict(client_state_dict)
+
+        # train 10 usr every time for ram limitation
+        batch_size = 10
+        for start in range(0, num_client, batch_size):
+            end = min(start + batch_size, num_client)
+            for client_id in range(start, end):
+                print(f"Client {client_id + 1} Local Training...")
+                client_model = copy.deepcopy(global_model[client_id]).to(device)
+                train_loader = DataLoader(client_data_splits[client_id][round], batch_size=batch_size, shuffle=True)
+                client_state_dict = train_local_model(train_loader, client_model, num_epochs, learning_rate)
+                global_model[client_id].load_state_dict(client_state_dict)
+            torch.cuda.empty_cache()
 
         # server model aggregation and averaging
         # vgg11-19
@@ -237,11 +254,22 @@ if __name__ == '__main__':
         for client_id in range(num_client):
             test_loader = DataLoader(client_test_data_splits[client_id][round], batch_size=batch_size, shuffle=False)
             avg_loss, accuracy = evaluate_model(test_loader, client_model[client_id])
+            round_loss.append(avg_loss)
+            round_accuracy.append(accuracy)
             print(f"Client {client_id + 1} - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
 
+        avg_round_loss = sum(round_loss) / len(round_loss)
+        avg_round_accuracy = sum(round_accuracy) / len(round_accuracy)
+        round_results["loss"].append(avg_round_loss)
+        round_results["accuracy"].append(avg_round_accuracy)
+
+        print(f"Round {round + 1} - Average Loss: {avg_round_loss:.4f}, Average Accuracy: {avg_round_accuracy:.2f}%")
         print("Round complete.\n")
 
+    with open("federated_results.json", "w") as f:
+        json.dump(round_results, f)
 
+    print("Training complete.")
 
 
 
