@@ -89,13 +89,15 @@ if __name__ == '__main__':
         print("Using cpu device")
 
     # init training conf
-    training_round = 10
+    training_round = 50
     num_epochs = 10
     batch_size = 64
     learning_rate = 0.01
     num_client = 40 # init dataset for 40 client, every 10 client share one model
     # round_results = {"loss": [], "accuracy": []}
-    round_results = {"accuracy": []}
+    # round_results = {"accuracy": []}
+    # round_results = {"VGG11": [], "VGG13": [], "VGG16": [], "VGG19": []}
+    round_results = []
 
     # init CIFAR10 dataset
     train_dataset = data_loader(data_dir='./data', batch_size=64)   # DataLoader init
@@ -148,7 +150,12 @@ if __name__ == '__main__':
     for round in range(training_round):
         print(f"Training Round {round + 1}")
         # round_loss = []
-        round_accuracy = []
+        # round_accuracy = []
+        vgg11_accuracies = []
+        vgg13_accuracies = []
+        vgg16_accuracies = []
+        vgg19_accuracies = []
+        client_accuracies = []
 
         # local training
         # for client_id in range(num_client):
@@ -275,25 +282,60 @@ if __name__ == '__main__':
             # avg_loss, accuracy = evaluate_model(test_loader, global_model[client_id])
             accuracy = evaluate_model(test_loader, global_model[client_id])
             # round_loss.append(avg_loss)
-            round_accuracy.append(accuracy)
+            # round_accuracy.append(accuracy)
+            if 0 <= client_id < 10:
+                vgg11_accuracies.append(accuracy)
+                model_name = 'VGG11'
+            elif 10 <= client_id < 20:
+                vgg13_accuracies.append(accuracy)
+                model_name = 'VGG13'
+            elif 20 <= client_id < 30:
+                vgg16_accuracies.append(accuracy)
+                model_name = 'VGG16'
+            elif 30 <= client_id < 40:
+                vgg19_accuracies.append(accuracy)
+                model_name = 'VGG19'
+
+            client_accuracies.append({
+                'client_id': client_id + 1,
+                'model': model_name,
+                'accuracy': accuracy
+            })
+
             # print(f"Client {client_id + 1} - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
             print(f"Client {client_id + 1} - Accuracy: {accuracy:.2f}%")
             global_model[client_id].to('cpu')
 
         # avg_round_loss = sum(round_loss) / len(round_loss)
-        avg_round_accuracy = sum(round_accuracy) / len(round_accuracy)
+        # avg_round_accuracy = sum(round_accuracy) / len(round_accuracy)
+        avg_accuracy_vgg11 = sum(vgg11_accuracies) / len(vgg11_accuracies)
+        avg_accuracy_vgg13 = sum(vgg13_accuracies) / len(vgg13_accuracies)
+        avg_accuracy_vgg16 = sum(vgg16_accuracies) / len(vgg16_accuracies)
+        avg_accuracy_vgg19 = sum(vgg19_accuracies) / len(vgg19_accuracies)
         # round_results["loss"].append(avg_round_loss)
-        round_results["accuracy"].append(avg_round_accuracy)
+        # round_results["accuracy"].append(avg_round_accuracy)
+        round_results.append({
+            'round': round + 1,
+            'client_accuracies': client_accuracies,
+            'model_averages': {
+                'VGG11': avg_accuracy_vgg11,
+                'VGG13': avg_accuracy_vgg13,
+                'VGG16': avg_accuracy_vgg16,
+                'VGG19': avg_accuracy_vgg19
+            }
+        })
 
         # print(f"Round {round + 1} - Average Loss: {avg_round_loss:.4f}, Average Accuracy: {avg_round_accuracy:.2f}%")
-        print(f"Round {round + 1} - Average Accuracy: {avg_round_accuracy:.2f}%")
+        # print(f"Round {round + 1} - Average Accuracy: {avg_round_accuracy:.2f}%")
+        print(f"Round {round + 1} - Average Accuracy for VGG11: {avg_accuracy_vgg11:.2f}%")
+        print(f"Round {round + 1} - Average Accuracy for VGG13: {avg_accuracy_vgg13:.2f}%")
+        print(f"Round {round + 1} - Average Accuracy for VGG16: {avg_accuracy_vgg16:.2f}%")
+        print(f"Round {round + 1} - Average Accuracy for VGG19: {avg_accuracy_vgg19:.2f}%")
         print("Round complete.\n")
 
-    with open("federated_results.json", "w") as f:
-        json.dump(round_results, f)
+
+    with open("federated_results_1123.json", "w") as f:
+        json.dump(round_results, f, indent=4)
 
     print("Training complete.")
-
-
-
 
