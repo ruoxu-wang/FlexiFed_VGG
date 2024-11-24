@@ -49,6 +49,7 @@ def train_local_model(train_loader, client_model, num_epochs, learning_rate):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+    client_model.to('cpu')
     return client_model.state_dict()
 
 # test
@@ -72,7 +73,7 @@ def evaluate_model(test_loader, client_model):
 
     # avg_loss = total_loss / len(test_loader)
     accuracy = 100.0 * correct / total
-    # return avg_loss, accuracy
+    client_model.to('cpu')
     return accuracy
 
 
@@ -124,7 +125,7 @@ if __name__ == '__main__':
         client_data_splits.append(client_split)
 
     client_test_datasets = []
-    test_split_size = data_len // num_client
+    test_split_size = test_data_len // num_client
     for i in range(num_client):
         client_test_idx = test_data_idx[i * test_split_size: (i + 1) * test_split_size]
         client_test_datasets.append(Subset(test_dataset, client_test_idx))
@@ -160,15 +161,16 @@ if __name__ == '__main__':
         #     global_model[client_id].load_state_dict(client_state_dict)
 
         # train 10 usr every time for ram limitation
-        batch_size = 10
-        for start in range(0, num_client, batch_size):
-            end = min(start + batch_size, num_client)
+        temp_batch_size = 10
+        for start in range(0, num_client, temp_batch_size):
+            end = min(start + temp_batch_size, num_client)
             for client_id in range(start, end):
                 print(f"Client {client_id + 1} Local Training...")
                 client_model = copy.deepcopy(global_model[client_id]).to(device)
                 train_loader = DataLoader(client_data_splits[client_id][round], batch_size=batch_size, shuffle=True)
                 client_state_dict = train_local_model(train_loader, client_model, num_epochs, learning_rate)
                 global_model[client_id].load_state_dict(client_state_dict)
+                global_model[client_id].to('cpu')
                 del client_model
             torch.cuda.empty_cache()
 
@@ -200,6 +202,7 @@ if __name__ == '__main__':
             state_dict['features.0.weight'].copy_(avg_weight)
             state_dict['features.0.bias'].copy_(avg_bias)
             global_model[client_id].load_state_dict(state_dict)
+            global_model[client_id].to('cpu')
 
         # vgg13-19
         for layer_idx in [2, 5, 7, 10, 12]:
@@ -233,6 +236,7 @@ if __name__ == '__main__':
                 state_dict[weight_name].copy_(avg_weight)
                 state_dict[bias_name].copy_(avg_bias)
                 global_model[client_id].load_state_dict(state_dict)
+                global_model[client_id].to('cpu')
 
         # vgg16-19
         layer_weight_sum = None
@@ -262,6 +266,7 @@ if __name__ == '__main__':
             state_dict['features.14.weight'].copy_(avg_weight)
             state_dict['features.14.bias'].copy_(avg_bias)
             global_model[client_id].load_state_dict(state_dict)
+            global_model[client_id].to('cpu')
 
         # model evaluation
         print(f"Evaluating client models after round {round + 1}")
@@ -273,6 +278,7 @@ if __name__ == '__main__':
             round_accuracy.append(accuracy)
             # print(f"Client {client_id + 1} - Loss: {avg_loss:.4f}, Accuracy: {accuracy:.2f}%")
             print(f"Client {client_id + 1} - Accuracy: {accuracy:.2f}%")
+            global_model[client_id].to('cpu')
 
         # avg_round_loss = sum(round_loss) / len(round_loss)
         avg_round_accuracy = sum(round_accuracy) / len(round_accuracy)
